@@ -3,6 +3,40 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 
+def custom_downsample(img, k):
+    """
+    Downsample the image by factor k (0 < k < 1).
+    Uses simple nearest-neighbor subsampling.
+    """
+    M, N = img.shape
+    newM = max(1, int(round(M * k)))
+    newN = max(1, int(round(N * k)))
+
+    # Create index mapping
+    row_idx = (np.linspace(0, M-1, newM)).astype(int)
+    col_idx = (np.linspace(0, N-1, newN)).astype(int)
+
+    # Subsample
+    down = img[row_idx[:, None], col_idx]
+    return down
+
+def custom_upsample(img, out_shape):
+    """
+    Upsample the image to a target shape using nearest-neighbor.
+    img: 2D numpy array
+    out_shape: (M, N) -> desired output size
+    """
+    M_new, N_new = out_shape
+    m, n = img.shape
+
+    # Compute index mapping
+    row_idx = (np.linspace(0, m-1, M_new)).astype(int)
+    col_idx = (np.linspace(0, n-1, N_new)).astype(int)
+
+    # Expand
+    up = img[row_idx[:, None], col_idx]
+    return up
+
 def load_gray_image(path):
     img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
     if img is None:
@@ -30,19 +64,17 @@ def ideal_rect_lowpass_fft(img, k):
 
 def resize_and_restore(img, k, filtered=False):
     M, N = img.shape
-    newM = max(1, int(round(M * k)))
-    newN = max(1, int(round(N * k)))
 
     if filtered and k < 1.0:
         img_proc = ideal_rect_lowpass_fft(img, k)
     else:
         img_proc = img
 
-    down = cv2.resize((img_proc*255).astype(np.uint8), (newN, newM), interpolation=cv2.INTER_LINEAR)
-    down = down.astype(np.float32) / 255.0
+    # Downsample using custom function
+    down = custom_downsample(img_proc, k)
 
-    restored = cv2.resize((down*255).astype(np.uint8), (N, M), interpolation=cv2.INTER_NEAREST)
-    restored = restored.astype(np.float32) / 255.0
+    # Restore back using custom upsample
+    restored = custom_upsample(down, (M, N))
 
     return down, restored
 
@@ -67,7 +99,6 @@ def show_compare(orig, naive_restored, filt_restored, k, save_prefix=None):
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     if save_prefix:
-        # Ensure the folder exists
         folder = os.path.dirname(save_prefix)
         if folder != "" and not os.path.exists(folder):
             os.makedirs(folder)
@@ -84,13 +115,9 @@ def main():
 
     ks = [0.5, 0.25, 0.125]  # 1/2, 1/4, 1/8
     for k in ks:
-        # Naive
-        down_naive = cv2.resize((img*255).astype(np.uint8), 
-                                (max(1,int(round(N*k))), max(1,int(round(M*k)))), 
-                                interpolation=cv2.INTER_LINEAR)
-        down_naive = down_naive.astype(np.float32)/255.0
-        restored_naive = cv2.resize((down_naive*255).astype(np.uint8), (N, M), interpolation=cv2.INTER_NEAREST)
-        restored_naive = restored_naive.astype(np.float32)/255.0
+        # Naive (without prefilter)
+        down_naive = custom_downsample(img, k)
+        restored_naive = custom_upsample(down_naive, (M, N))
 
         # Filtered
         down_filt, restored_filt = resize_and_restore(img, k, filtered=True)
