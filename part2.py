@@ -65,6 +65,67 @@ def save_image_normalized(img, path):
 def convolve_spatial(img, psf):
     return convolve2d(img, psf, mode='same', boundary='symm')
 
+
+# ==============================
+# PART (C): Frequency-Domain Convolution
+# ==============================
+
+def convolve_frequency(img, psf, output_dir, label):
+    """
+    Perform convolution via FFT (multiplication in frequency domain).
+    Includes zero-padding and shows intermediate results.
+    """
+    H, W = img.shape
+    h, w = psf.shape
+
+    # Pad PSF to image size, center properly
+    psf_padded = np.zeros_like(img)
+    y0, x0 = H//2 - h//2, W//2 - w//2
+    psf_padded[y0:y0+h, x0:x0+w] = psf
+
+    # Compute FFTs
+    F_img = np.fft.fft2(img)
+    F_psf = np.fft.fft2(np.fft.ifftshift(psf_padded))  # center PSF before FFT
+
+    # Multiply in frequency domain
+    F_blurred = F_img * F_psf
+
+    # Inverse FFT to get blurred image
+    blurred = np.real(np.fft.ifft2(F_blurred))
+
+    # --- Save intermediate results ---
+    def spectrum(x):
+        return np.log(1 + np.abs(np.fft.fftshift(x)))
+
+    plt.figure(figsize=(12, 4))
+    plt.subplot(1, 3, 1)
+    plt.imshow(spectrum(F_img), cmap='gray')
+    plt.title("FFT of Image")
+    plt.axis('off')
+
+    plt.subplot(1, 3, 2)
+    plt.imshow(spectrum(F_psf), cmap='gray')
+    plt.title("FFT of PSF")
+    plt.axis('off')
+
+    plt.subplot(1, 3, 3)
+    plt.imshow(spectrum(F_blurred), cmap='gray')
+    plt.title("FFT of Product (Blurred)")
+    plt.axis('off')
+
+    plt.tight_layout()
+    inter_path = os.path.join(output_dir, f"fft_intermediates_{label}.png")
+    plt.savefig(inter_path, dpi=200)
+    plt.show()
+    print(f"✅ Saved intermediate FFT visualization: {inter_path}")
+
+    return blurred
+
+
+# ==============================
+# MAIN
+# ==============================
+
 def main():
     output_dir = "part2_output"
     os.makedirs(output_dir, exist_ok=True)
@@ -80,7 +141,8 @@ def main():
     # -----------------
     # Part (b)
     # -----------------
-    # Create impulse image once and save
+    print("\n=== Running Part (b): Spatial-Domain Convolution ===")
+
     impulse_path = os.path.join(output_dir, "impulse_original.png")
     if not os.path.exists(impulse_path):
         impulse_img = create_impulse_image(size=(200, 200))
@@ -90,47 +152,76 @@ def main():
         impulse_img = cv2.imread(impulse_path, cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
         print(f"Loaded existing impulse image from {impulse_path}")
 
-    # Load a rectangular photograph
     photo_path = "test-images/stars.jpeg"
     photo = cv2.imread(photo_path, cv2.IMREAD_GRAYSCALE)
     if photo is None:
-        raise FileNotFoundError('Cannot find the {photo_path} image.')
+        raise FileNotFoundError(f"Cannot find image {photo_path}")
     photo = photo.astype(np.float32) / 255.0
     print(f"Loaded photograph shape: {photo.shape}")
 
-    # Use smallest PSF (10x10)
     psf_small = psf_versions[10]
 
-    # Convolve with impulse image
-    blurred_impulse = convolve_spatial(impulse_img, psf_small)
-    save_image_normalized(blurred_impulse, os.path.join(output_dir, "blurred_impulse.png"))
+    # Spatial-domain convolution
+    blurred_impulse_spatial = convolve_spatial(impulse_img, psf_small)
+    blurred_photo_spatial = convolve_spatial(photo, psf_small)
+    save_image_normalized(blurred_impulse_spatial, os.path.join(output_dir, "blurred_impulse_spatial.png"))
+    save_image_normalized(blurred_photo_spatial, os.path.join(output_dir, "blurred_photo_spatial.png"))
 
-    # Convolve with real photo
-    blurred_photo = convolve_spatial(photo, psf_small)
-    save_image_normalized(blurred_photo, os.path.join(output_dir, "blurred_photo.png"))
-
-    # Display results
+    # Show results for part (b)
     plt.figure(figsize=(12, 6))
-    plt.subplot(1, 3, 1)
-    plt.imshow(impulse_img, cmap='gray')
-    plt.title("Original Impulse Image")
+    plt.subplot(1, 2, 1)
+    plt.imshow(blurred_impulse_spatial, cmap='gray')
+    plt.title("Part (b): Impulse Blurred (Spatial Convolution)")
     plt.axis('off')
 
-    plt.subplot(1, 3, 2)
-    plt.imshow(blurred_impulse, cmap='gray', vmin=0, vmax=blurred_impulse.max())
-    plt.title("Blurred Impulse Image (with PSF)")
-    plt.axis('off')
-
-    plt.subplot(1, 3, 3)
-    plt.imshow(blurred_photo, cmap='gray')
-    plt.title("Blurred Photograph (Spatial Convolution)")
+    plt.subplot(1, 2, 2)
+    plt.imshow(blurred_photo_spatial, cmap='gray')
+    plt.title("Part (b): Photo Blurred (Spatial Convolution)")
     plt.axis('off')
 
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "part2b_results.png"), dpi=200)
     plt.show()
+    print("✅ Part (b) results saved.\n")
 
-    print("✅ Part (b) results saved in:", output_dir)
+    # -----------------
+    # Part (c)
+    # -----------------
+    print("\n=== Running Part (c): Frequency-Domain Convolution ===")
+
+    blurred_impulse_freq = convolve_frequency(impulse_img, psf_small, output_dir, label="impulse")
+    blurred_photo_freq = convolve_frequency(photo, psf_small, output_dir, label="photo")
+
+    save_image_normalized(blurred_impulse_freq, os.path.join(output_dir, "blurred_impulse_freq.png"))
+    save_image_normalized(blurred_photo_freq, os.path.join(output_dir, "blurred_photo_freq.png"))
+
+    # --- Show final comparison for part (c) ---
+    plt.figure(figsize=(10, 8))
+    plt.subplot(2, 2, 1)
+    plt.imshow(blurred_impulse_spatial, cmap='gray')
+    plt.title("Impulse - Spatial Convolution")
+    plt.axis('off')
+
+    plt.subplot(2, 2, 2)
+    plt.imshow(blurred_impulse_freq, cmap='gray')
+    plt.title("Impulse - Frequency Convolution")
+    plt.axis('off')
+
+    plt.subplot(2, 2, 3)
+    plt.imshow(blurred_photo_spatial, cmap='gray')
+    plt.title("Photo - Spatial Convolution")
+    plt.axis('off')
+
+    plt.subplot(2, 2, 4)
+    plt.imshow(blurred_photo_freq, cmap='gray')
+    plt.title("Photo - Frequency Convolution")
+    plt.axis('off')
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "part2c_final_comparison.png"), dpi=200)
+    plt.show()
+
+    print("✅ Part (c) results and comparisons saved in:", output_dir)
 
 
 if __name__ == "__main__":
